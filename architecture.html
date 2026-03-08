@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SSH Brute Force Detection — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #07090f;
+  --surface: #0c1018;
+  --surface2: #101520;
+  --border: #1c2535;
+  --red: #ff3535;
+  --red-dim: rgba(255,53,53,0.12);
+  --orange: #ff8800;
+  --orange-dim: rgba(255,136,0,0.12);
+  --green: #00e676;
+  --green-dim: rgba(0,230,118,0.10);
+  --blue: #1e90ff;
+  --blue-dim: rgba(30,144,255,0.12);
+  --yellow: #ffd600;
+  --text: #b8ccd8;
+  --muted: #3d5060;
+  --mono: 'Share Tech Mono', monospace;
+  --display: 'Bebas Neue', sans-serif;
+  --ui: 'Rajdhani', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  font-family: var(--mono);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 40px 24px 60px;
+  overflow-x: hidden;
+}
+
+/* Scan lines */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px);
+  pointer-events: none; z-index: 999;
+}
+
+/* Grid */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,230,118,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,230,118,0.03) 1px, transparent 1px);
+  background-size: 44px 44px;
+  pointer-events: none; z-index: 0;
+}
+
+.page { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; }
+
+/* ── HEADER ── */
+.header {
+  text-align: center;
+  margin-bottom: 44px;
+  animation: fadeDown .7s ease both;
+}
+.header-eyebrow {
+  font-size: 13px; letter-spacing: 9px;
+  color: var(--red); text-transform: uppercase; margin-bottom: 14px;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+}
+.header-eyebrow::before, .header-eyebrow::after {
+  content: ''; flex: 1; max-width: 120px; height: 1px; background: linear-gradient(90deg, transparent, var(--red));
+}
+.header-eyebrow::after { transform: scaleX(-1); }
+.header h1 {
+  font-family: var(--display);
+  font-size: clamp(40px, 6vw, 72px);
+  color: #fff; letter-spacing: 4px; line-height: 1;
+  text-shadow: 0 0 40px rgba(255,53,53,0.25);
+}
+.header-sub { font-size: 15px; color: var(--muted); letter-spacing: 4px; margin-top: 12px; }
+
+/* ── MAIN DIAGRAM CARD ── */
+.arch-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 56px 40px 48px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0,230,118,0.04), 0 50px 100px rgba(0,0,0,0.6);
+  animation: fadeUp .8s ease .1s both;
+}
+
+/* Corner brackets */
+.arch-card::before { content: ''; position: absolute; top: 16px; left: 16px; width: 28px; height: 28px; border-top: 2px solid var(--red); border-left: 2px solid var(--red); opacity: .5; border-radius: 2px 0 0 0; }
+.arch-card::after  { content: ''; position: absolute; bottom: 16px; right: 16px; width: 28px; height: 28px; border-bottom: 2px solid var(--green); border-right: 2px solid var(--green); opacity: .5; border-radius: 0 0 2px 0; }
+
+/* Title bar */
+.diagram-title {
+  text-align: center;
+  font-size: 13px; letter-spacing: 6px; color: var(--muted);
+  text-transform: uppercase; margin-bottom: 44px;
+}
+.diagram-title span { color: var(--green); }
+
+/* ── PIPELINE ROW ── */
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: nowrap;
+}
+
+/* ── NODE ── */
+.node {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  flex-shrink: 0;
+  position: relative;
+  animation: nodeIn .6s ease both;
+}
+.node:nth-child(1) { animation-delay: .15s; }
+.node:nth-child(3) { animation-delay: .3s; }
+.node:nth-child(5) { animation-delay: .45s; }
+.node:nth-child(7) { animation-delay: .6s; }
+
+.node-inner {
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  padding: 26px 20px 22px;
+  position: relative;
+  overflow: hidden;
+  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+  height: 100%;
+}
+.node-inner:hover { transform: translateY(-5px); }
+
+.node--kali   .node-inner:hover { border-color: var(--red);    box-shadow: 0 8px 30px rgba(255,53,53,.2), inset 0 0 30px var(--red-dim); }
+.node--ubuntu .node-inner:hover { border-color: var(--orange);  box-shadow: 0 8px 30px rgba(255,136,0,.2), inset 0 0 30px var(--orange-dim); }
+.node--splunk .node-inner:hover { border-color: var(--green);   box-shadow: 0 8px 30px rgba(0,230,118,.2), inset 0 0 30px var(--green-dim); }
+.node--dash   .node-inner:hover { border-color: var(--blue);    box-shadow: 0 8px 30px rgba(30,144,255,.2), inset 0 0 30px var(--blue-dim); }
+
+/* Top color bar */
+.node-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 12px 12px 0 0;
+}
+.node--kali   .node-bar { background: linear-gradient(90deg, transparent, var(--red), transparent); }
+.node--ubuntu .node-bar { background: linear-gradient(90deg, transparent, var(--orange), transparent); }
+.node--splunk .node-bar { background: linear-gradient(90deg, transparent, var(--green), transparent); }
+.node--dash   .node-bar { background: linear-gradient(90deg, transparent, var(--blue), transparent); }
+
+.node-icon { font-size: 44px; text-align: center; display: block; margin: 10px 0 14px; }
+.node-name {
+  font-family: var(--display); font-size: 22px; letter-spacing: 2px;
+  color: #e8f0f8; text-align: center; margin-bottom: 4px;
+}
+.node-role {
+  font-size: 11px; text-align: center; letter-spacing: 2px;
+  text-transform: uppercase; margin-bottom: 14px;
+}
+.node--kali   .node-role { color: var(--red); }
+.node--ubuntu .node-role { color: var(--orange); }
+.node--splunk .node-role { color: var(--green); }
+.node--dash   .node-role { color: var(--blue); }
+
+.node-tags { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-bottom: 14px; }
+.tag {
+  font-size: 10px; padding: 3px 10px; border-radius: 20px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  color: var(--muted); letter-spacing: .5px;
+}
+
+/* Info lines */
+.node-info { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 2px; }
+.info-row { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
+.info-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.node--kali   .info-dot { background: var(--red); }
+.node--ubuntu .info-dot { background: var(--orange); }
+.node--splunk .info-dot { background: var(--green); }
+.node--dash   .info-dot { background: var(--blue); }
+
+/* Step badge */
+.step-badge {
+  text-align: center; font-size: 11px; letter-spacing: 4px;
+  color: var(--muted); margin-bottom: 10px; text-transform: uppercase;
+}
+
+/* ── CONNECTOR ── */
+.connector {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  width: 90px; flex-shrink: 0; gap: 7px;
+  padding-top: 56px;
+}
+.conn-label { font-size: 11px; letter-spacing: 1px; text-align: center; line-height: 1.6; white-space: nowrap; }
+.conn-1 .conn-label { color: var(--red); }
+.conn-2 .conn-label { color: var(--orange); }
+.conn-3 .conn-label { color: var(--green); }
+
+.arrow-wrap { width: 100%; position: relative; height: 14px; display: flex; align-items: center; }
+.arrow-line { flex: 1; height: 2px; background: var(--border); border-radius: 2px; position: relative; overflow: hidden; }
+.arrow-fill {
+  position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+  border-radius: 2px;
+}
+.conn-1 .arrow-fill { background: var(--red);    animation: slide 1.6s ease-in-out infinite 0s; }
+.conn-2 .arrow-fill { background: var(--orange);  animation: slide 1.6s ease-in-out infinite .52s; }
+.conn-3 .arrow-fill { background: var(--green);   animation: slide 1.6s ease-in-out infinite 1.05s; }
+
+.arrow-head { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; flex-shrink: 0; }
+.conn-1 .arrow-head { border-left: 8px solid var(--red); }
+.conn-2 .arrow-head { border-left: 8px solid var(--orange); }
+.conn-3 .arrow-head { border-left: 8px solid var(--green); }
+
+/* ── BOTTOM PANELS ── */
+.bottom-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-top: 36px;
+  animation: fadeUp .8s ease .5s both;
+}
+
+.panel {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 16px;
+  position: relative;
+  overflow: hidden;
+}
+.panel::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+}
+.panel--red::before    { background: linear-gradient(90deg, transparent, var(--red), transparent); }
+.panel--orange::before { background: linear-gradient(90deg, transparent, var(--orange), transparent); }
+.panel--green::before  { background: linear-gradient(90deg, transparent, var(--green), transparent); }
+
+.panel-title {
+  font-family: var(--display); font-size: 18px; letter-spacing: 2px;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+}
+.panel--red    .panel-title { color: var(--red); }
+.panel--orange .panel-title { color: var(--orange); }
+.panel--green  .panel-title { color: var(--green); }
+
+.panel-title-icon { font-size: 18px; }
+
+.code-block {
+  background: #080c12;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 12px;
+  line-height: 2;
+  color: #7ba0b8;
+  overflow-x: auto;
+}
+.code-block .kw  { color: var(--green); }
+.code-block .str { color: var(--yellow); }
+.code-block .cm  { color: var(--muted); }
+.code-block .op  { color: var(--orange); }
+.code-block .ip  { color: var(--red); }
+
+.feat-list { list-style: none; }
+.feat-list li {
+  font-size: 13px; color: var(--muted); padding: 7px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  display: flex; align-items: center; gap: 10px;
+}
+.feat-list li:last-child { border-bottom: none; }
+.feat-list .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.feat-list .dot-green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.feat-list .dot-yellow { background: var(--yellow); }
+.feat-list .dot-blue   { background: var(--blue); }
+.feat-list .dot-red    { background: var(--red); }
+
+.alert-box {
+  background: rgba(255,53,53,0.06);
+  border: 1px solid rgba(255,53,53,0.2);
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: #8aacb8;
+}
+.alert-box .alert-header {
+  color: var(--red); font-size: 12px; letter-spacing: 2px;
+  margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+}
+.blink { animation: blink 1s step-end infinite; }
+
+/* ── LEGEND ── */
+.legend {
+  display: flex; justify-content: center; gap: 36px; flex-wrap: wrap;
+  margin-top: 32px;
+  animation: fadeUp .8s ease .7s both;
+}
+.legend-item { display: flex; align-items: center; gap: 11px; font-size: 13px; color: var(--muted); letter-spacing: 1.5px; }
+.legend-swatch {
+  width: 34px; height: 2px; border-radius: 2px; position: relative;
+}
+.legend-swatch::after {
+  content: ''; position: absolute; right: -1px; top: 50%;
+  transform: translateY(-50%);
+  width: 0; height: 0;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+}
+.ls-red    { background: var(--red); }
+.ls-red::after    { border-left: 6px solid var(--red); }
+.ls-orange { background: var(--orange); }
+.ls-orange::after { border-left: 6px solid var(--orange); }
+.ls-green  { background: var(--green); }
+.ls-green::after  { border-left: 6px solid var(--green); }
+
+.footer {
+  text-align: center; margin-top: 32px; font-size: 12px;
+  color: var(--muted); letter-spacing: 3px; opacity: .5;
+  animation: fadeUp .8s ease .9s both;
+}
+
+/* ── KEYFRAMES ── */
+@keyframes slide {
+  0%   { left: -100%; }
+  60%  { left: 100%; }
+  100% { left: 100%; }
+}
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+@keyframes fadeDown { from{opacity:0;transform:translateY(-16px);} to{opacity:1;transform:translateY(0);} }
+@keyframes fadeUp   { from{opacity:0;transform:translateY(14px);}  to{opacity:1;transform:translateY(0);} }
+@keyframes nodeIn   { from{opacity:0;transform:scale(.9) translateY(12px);} to{opacity:1;transform:scale(1) translateY(0);} }
+
+/* ── RESPONSIVE ── */
+@media(max-width:740px){
+  .pipeline{ flex-direction:column; align-items:center; gap:0; }
+  .node{ width:260px; }
+  .connector{ flex-direction:column; width:2px; height:56px; padding-top:0; padding:0; gap:2px; }
+  .conn-label{ display:none; }
+  .arrow-wrap{ flex-direction:column; height:auto; width:2px; }
+  .arrow-line{ width:2px; flex:1; min-height:30px; }
+  .arrow-head{ border-left:5px solid transparent; border-right:5px solid transparent; border-top:8px solid; border-bottom:none; }
+  .conn-1 .arrow-head{ border-top-color:var(--red); border-left-color:transparent; }
+  .conn-2 .arrow-head{ border-top-color:var(--orange); border-left-color:transparent; }
+  .conn-3 .arrow-head{ border-top-color:var(--green); border-left-color:transparent; }
+  .bottom-panels{ grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-eyebrow">Cybersecurity Lab Project</div>
+    <h1>SSH Brute Force Detection</h1>
+    <div class="header-sub">Using Splunk SIEM · Architecture Overview</div>
+  </div>
+
+  <!-- MAIN DIAGRAM -->
+  <div class="arch-card">
+    <div class="diagram-title">Attack Detection Pipeline · <span>Live Data Flow</span></div>
+
+    <div class="pipeline">
+
+      <!-- KALI LINUX -->
+      <div class="node node--kali">
+        <div class="step-badge">Step 01</div>
+        <div class="node-inner">
+          <div class="node-bar"></div>
+          <span class="node-icon">💀</span>
+          <div class="node-name">Kali Linux</div>
+          <div class="node-role">Attacker Machine</div>
+          <div class="node-tags">
+            <span class="tag">Hydra</span>
+            <span class="tag">Nmap</span>
+            <span class="tag">Wordlist</span>
+          </div>
+          <div class="node-info">
+            <div class="info-row"><span class="info-dot"></span><span>Launches SSH brute-force via Hydra</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>rockyou.txt wordlist</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>Target: 192.168.1.21</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONNECTOR 1 -->
+      <div class="connector conn-1">
+        <div class="conn-label">SSH<br>Port 22</div>
+        <div class="arrow-wrap">
+          <div class="arrow-line"><div class="arrow-fill"></div></div>
+          <div class="arrow-head"></div>
+        </div>
+      </div>
+
+      <!-- UBUNTU SERVER -->
+      <div class="node node--ubuntu">
+        <div class="step-badge">Step 02</div>
+        <div class="node-inner">
+          <div class="node-bar"></div>
+          <span class="node-icon">🖥️</span>
+          <div class="node-name">Ubuntu Server</div>
+          <div class="node-role">SSH Target</div>
+          <div class="node-tags">
+            <span class="tag">OpenSSH</span>
+            <span class="tag">rsyslog</span>
+            <span class="tag">Port 22</span>
+          </div>
+          <div class="node-info">
+            <div class="info-row"><span class="info-dot"></span><span>Receives brute-force attempts</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>Logs to /var/log/auth.log</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>Forwards logs via rsyslog</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONNECTOR 2 -->
+      <div class="connector conn-2">
+        <div class="conn-label">auth.log<br>Forward</div>
+        <div class="arrow-wrap">
+          <div class="arrow-line"><div class="arrow-fill"></div></div>
+          <div class="arrow-head"></div>
+        </div>
+      </div>
+
+      <!-- SPLUNK -->
+      <div class="node node--splunk">
+        <div class="step-badge">Step 03</div>
+        <div class="node-inner">
+          <div class="node-bar"></div>
+          <span class="node-icon">🔍</span>
+          <div class="node-name">Splunk SIEM</div>
+          <div class="node-role">Log Aggregator</div>
+          <div class="node-tags">
+            <span class="tag">Indexer</span>
+            <span class="tag">Forwarder</span>
+            <span class="tag">SPL</span>
+          </div>
+          <div class="node-info">
+            <div class="info-row"><span class="info-dot"></span><span>Ingests & indexes auth events</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>Runs SPL detection queries</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>Correlates failed login patterns</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONNECTOR 3 -->
+      <div class="connector conn-3">
+        <div class="conn-label">Alerts<br>&amp; Reports</div>
+        <div class="arrow-wrap">
+          <div class="arrow-line"><div class="arrow-fill"></div></div>
+          <div class="arrow-head"></div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div class="node node--dash">
+        <div class="step-badge">Step 04</div>
+        <div class="node-inner">
+          <div class="node-bar"></div>
+          <span class="node-icon">📊</span>
+          <div class="node-name">Dashboard</div>
+          <div class="node-role">Alerts &amp; Reports</div>
+          <div class="node-tags">
+            <span class="tag">Alerts</span>
+            <span class="tag">Visuals</span>
+            <span class="tag">GeoIP</span>
+          </div>
+          <div class="node-info">
+            <div class="info-row"><span class="info-dot"></span><span>Top attacker IPs panel</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>Timeline of failed logins</span></div>
+            <div class="info-row"><span class="info-dot"></span><span>Geographic attack origin map</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /pipeline -->
+
+    <!-- BOTTOM PANELS -->
+    <div class="bottom-panels">
+
+      <!-- Attack Command -->
+      <div class="panel panel--red">
+        <div class="panel-title"><span class="panel-title-icon">⚔️</span> Attack Command</div>
+        <div class="code-block">
+<span class="cm"># Hydra SSH Brute-Force</span>
+<span class="kw">hydra</span> \
+  <span class="op">-l</span> <span class="str">sshuser</span> \
+  <span class="op">-P</span> rockyou.txt \
+  <span class="kw">ssh://</span><span class="ip">192.168.1.21</span>
+
+<span class="cm"># Target details</span>
+<span class="op">Host:</span> <span class="ip">192.168.1.21</span>
+<span class="op">Port:</span> <span class="str">22</span>
+<span class="op">User:</span> <span class="str">sshuser</span>
+        </div>
+      </div>
+
+      <!-- Detection Query -->
+      <div class="panel panel--orange">
+        <div class="panel-title"><span class="panel-title-icon">🧩</span> SPL Detection Query</div>
+        <div class="code-block">
+<span class="kw">index</span>=main <span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="kw">rex</span> <span class="str">"from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"</span>
+<span class="op">|</span> <span class="kw">bin</span> _time <span class="op">span</span>=1m
+<span class="op">|</span> <span class="kw">stats</span> count <span class="kw">by</span> src_ip _time
+<span class="op">|</span> <span class="kw">where</span> count <span class="op">&gt;</span> <span class="str">10</span>
+        </div>
+      </div>
+
+      <!-- Dashboard Features + Alert -->
+      <div class="panel panel--green">
+        <div class="panel-title"><span class="panel-title-icon">📡</span> Detection Output</div>
+        <ul class="feat-list">
+          <li><span class="dot dot-green"></span>Top Attacker IPs</li>
+          <li><span class="dot dot-yellow"></span>Failed Logins Timeline</li>
+          <li><span class="dot dot-blue"></span>Targeted SSH Users</li>
+          <li><span class="dot dot-red"></span>Geographic Attack Origin</li>
+        </ul>
+        <div class="alert-box" style="margin-top:12px;">
+          <div class="alert-header"><span class="blink">●</span> ALERT RULE</div>
+          Triggers when <strong style="color:#ff3535;">&gt; 10 failed SSH logins</strong> detected from a single IP within <strong style="color:#ffd600;">1 minute</strong>. Notifies security analyst immediately.
+        </div>
+      </div>
+
+    </div><!-- /bottom-panels -->
+
+  </div><!-- /arch-card -->
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch ls-red"></div>SSH Attack Traffic</div>
+    <div class="legend-item"><div class="legend-swatch ls-orange"></div>Log Forwarding</div>
+    <div class="legend-item"><div class="legend-swatch ls-green"></div>Alert Pipeline</div>
+  </div>
+
+  <div class="footer">// SSH Brute Force Detection Lab · Splunk SIEM · Hover nodes to explore</div>
+
+</div><!-- /page -->
+</body>
+</html>
